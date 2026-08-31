@@ -68,6 +68,23 @@
     return null;
   }
 
+  // 先解码再匹配，因此正则可直接写中文（军令：(\d+)）而不必关心实体编码。
+  function matchNumber(html, re) {
+    var text = decodeEntities(html);
+    var m = re.exec(text);
+    if (!m || m[1] === undefined) return null;
+    var n = parseInt(String(m[1]).replace(/,/g, ''), 10);
+    return isNaN(n) ? null : n;
+  }
+
+  // 两重判据：标题含「登录」，或正文含「登录账号」。任一命中即认定会话失效。
+  function isLoginPage(html) {
+    if (typeof html !== 'string' || html === '') return false;
+    var title = /<title>([^<]*)<\/title>/i.exec(html);
+    if (title && title[1].indexOf('登录') !== -1) return true;
+    return decodeEntities(html).indexOf('登录账号') !== -1;
+  }
+
   //  ── L2 Gateway ─────────  read / act / actAll + FatalError
 
   //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
@@ -75,7 +92,9 @@
     module.exports = {
       decodeEntities: decodeEntities,
       allHrefs: allHrefs,
-      findHref: findHref
+      findHref: findHref,
+      matchNumber: matchNumber,
+      isLoginPage: isLoginPage
     };
     return;
   }
