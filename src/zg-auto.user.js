@@ -46,11 +46,37 @@
       .replace(/&amp;/g, '&');
   }
 
+  // 返回页面中全部 href 的原文（已解码实体）。
+  // sid 必须使用原文，手工拼接会被重定向到登录页。
+  function allHrefs(html) {
+    if (typeof html !== 'string') return [];
+    var out = [];
+    var rx = /href=["']([^"']+)["']/gi;
+    var m;
+    while ((m = rx.exec(html)) !== null) {
+      out.push(decodeEntities(m[1]));
+    }
+    return out;
+  }
+
+  // 调用方传入的正则不得带 g 标志，否则 lastIndex 会导致漏匹配。
+  function findHref(html, re) {
+    var list = allHrefs(html);
+    for (var i = 0; i < list.length; i++) {
+      if (re.test(list[i])) return list[i];
+    }
+    return null;
+  }
+
   //  ── L2 Gateway ─────────  read / act / actAll + FatalError
 
   //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { decodeEntities: decodeEntities };
+    module.exports = {
+      decodeEntities: decodeEntities,
+      allHrefs: allHrefs,
+      findHref: findHref
+    };
     return;
   }
 
