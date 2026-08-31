@@ -25,7 +25,14 @@
 
   var CFG = {
     throttleMs: 800,
-    dryRun: true
+    dryRun: true,
+    formationPath: '/Build/Operate/Formation',
+    generals: {
+      sima: '723acde6-7f00-4378-a998-2f5baf76ca78',
+      wang: 'fc4fa2cf-4775-4908-a4e6-12af041df335',
+      yue: 'e01a0e22-6fa5-46d0-931f-efb4be56f4e4',
+      wu: '94efcdbf-65df-421a-a92c-58239c0f8223'
+    }
   };
 
   //  ── L1 Core ────────────  http / dom / store / log / sleep
@@ -251,6 +258,52 @@
     return out;
   }
 
+  // 阵位号：0 先锋 / 1 前军 / 2 中军 / 3 后卫。
+  // 王翦固定占前军(1)，两套阵型都不动它，切换只涉及 0 / 2 / 3 三位。
+  //
+  // 每个动作都走 gw.act，因此实际请求数是 6 个（3 读 + 3 写）而非 3 个。
+  // 编队链接本身不带一次性 token，理论上可以直接连发，
+  // 但为守住「Gateway 是唯一写入口」这条约束，不为编队开特例。
+  //
+  // 切换后必须重新读取：写操作可能因链接不存在而静默失败，
+  // 返回实际状态而非期望状态，调用方据此判断是否真的切成功。
+  async function ensureFormation(deps, kind) {
+    var gw = deps.gw;
+    var g = deps.generals;
+    var cur = parseFormation(await gw.read(CFG.formationPath));
+    if (cur === kind) return cur;
+
+    if (kind === 'solo') {
+      var slots = [0, 2, 3];
+      for (var i = 0; i < slots.length; i++) {
+        await gw.act(CFG.formationPath, new RegExp('Down\\?a=' + slots[i]));
+      }
+    } else if (kind === 'four') {
+      var ups = [[g.sima, 0], [g.yue, 2], [g.wu, 3]];
+      for (var j = 0; j < ups.length; j++) {
+        await gw.act(
+          CFG.formationPath,
+          new RegExp('UpOk\\?g=' + ups[j][0] + '[^"\']*a=' + ups[j][1])
+        );
+      }
+    }
+
+    return parseFormation(await gw.read(CFG.formationPath));
+  }
+
+  // 作用域守卫：切到目标阵型 → 执行 fn → 无论成败都切回四人阵。
+  //
+  // finally 是这里的全部意义，不得改写成 catch 后 return：
+  // 2026-08-28 编队在切成单人后中断，永久停在 solo，导致两场天梯 1 打 4 连败。
+  async function withFormation(deps, kind, fn) {
+    await ensureFormation(deps, kind);
+    try {
+      return await fn();
+    } finally {
+      await ensureFormation(deps, 'four');
+    }
+  }
+
   //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -266,7 +319,9 @@
       isWindowOpen: isWindowOpen,
       parseMine: parseMine,
       parseFormation: parseFormation,
-      parseFriendList: parseFriendList
+      parseFriendList: parseFriendList,
+      ensureFormation: ensureFormation,
+      withFormation: withFormation
     };
     return;
   }
