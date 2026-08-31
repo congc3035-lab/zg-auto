@@ -23,6 +23,11 @@
 
   //  ── CFG ────────────────  配置，全部可变值（阈值 / 路径 / GUID / 快捷键）
 
+  var CFG = {
+    throttleMs: 800,
+    dryRun: true
+  };
+
   //  ── L1 Core ────────────  http / dom / store / log / sleep
 
   // 游戏页面把中文全部编码成 HTML 实体，等级写作 (50&#x7EA7;) 而非 (50级)。
@@ -85,16 +90,38 @@
     return decodeEntities(html).indexOf('登录账号') !== -1;
   }
 
+  // 网络与时间全部由外部注入，测试时替换为假实现。
+  // last 初值为 -Infinity，保证第一次请求不等待。
+  function createHttp(deps) {
+    var last = -Infinity;
+    return {
+      get: async function (url) {
+        var wait = deps.throttleMs - (deps.now() - last);
+        if (wait > 0) await deps.sleepImpl(wait);
+        last = deps.now();
+        var res = await deps.fetchImpl(url);
+        return {
+          ok: res.ok,
+          status: res.status,
+          html: await res.text(),
+          finalUrl: res.url || url
+        };
+      }
+    };
+  }
+
   //  ── L2 Gateway ─────────  read / act / actAll + FatalError
 
   //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
+      CFG: CFG,
       decodeEntities: decodeEntities,
       allHrefs: allHrefs,
       findHref: findHref,
       matchNumber: matchNumber,
-      isLoginPage: isLoginPage
+      isLoginPage: isLoginPage,
+      createHttp: createHttp
     };
     return;
   }
