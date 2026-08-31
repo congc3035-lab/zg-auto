@@ -1,0 +1,23 @@
+# 测试基线。本项目代码不落本地磁盘，测试一律跑在 GitHub Actions 上。
+# Node 20 自带 test runner，零依赖，不引入任何构建步骤。
+
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 运行测试
+        run: node --test tests/
