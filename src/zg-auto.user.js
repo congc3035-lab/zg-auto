@@ -193,6 +193,64 @@
     return false;
   }
 
+  // 站点在同一页混用原文中文与 HTML 实体，matchNumber 已内置解码，此处直接用。
+  // 铜币与粮草的格式是「当前/上限」，正则只取斜杠前的当前值。
+  function parseMine(html) {
+    return {
+      orders: matchNumber(html, /军令：(\d+)/),
+      copper: matchNumber(html, /铜币：(\d+)\s*\//),
+      food: matchNumber(html, /粮草：(\d+)\s*\//),
+      merit: matchNumber(html, /军功：(\d+)/),
+      prestige: matchNumber(html, /威望：(\d+)/)
+    };
+  }
+
+  // 阵位判据取「该阵位后的 span 内是否含『空闲』」。
+  // 不按有无链接判断：护卫位与援军位也渲染 span，内容是开启条件说明，
+  // 按链接判断会把它们误算成有人。
+  function slotOccupied(text, label) {
+    var re = new RegExp(label + '\\s*[:：][\\s\\S]{0,40}?<span>([\\s\\S]{0,120}?)<\\/span>');
+    var m = re.exec(text);
+    if (!m) return false;
+    return m[1].indexOf('空闲') === -1;
+  }
+
+  // four = 四位皆有人；solo = 仅前军有人；其余一律 other。
+  // other 出现时上层必须先修复为 four 再继续，详见架构设计的三重保护。
+  function parseFormation(html) {
+    var text = decodeEntities(html);
+    var van = slotOccupied(text, '先锋');
+    var front = slotOccupied(text, '前军');
+    var center = slotOccupied(text, '中军');
+    var rear = slotOccupied(text, '后卫');
+    if (van && front && center && rear) return 'four';
+    if (!van && front && !center && !rear) return 'solo';
+    return 'other';
+  }
+
+  // 好友条目形如：
+  //   <a href="/Build/Operate/FColony?f=555555&amp;sid=...">昵称</a>(50&#x7EA7;)
+  // 先整体解码，再一次性捕获 href、id、昵称、等级四段。
+  //
+  // 等级门槛不写在这里：本函数只负责解析，过滤由调用方按 CFG 决定，
+  // L3 不该知道具体阈值从何而来。
+  function parseFriendList(html) {
+    if (typeof html !== 'string' || html === '') return [];
+    var text = decodeEntities(html);
+    var rx = /href=["'](\/Build\/Operate\/FColony\?f=(\d+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>\s*\((\d+)级\)/g;
+    var out = [];
+    var m;
+    while ((m = rx.exec(text)) !== null) {
+      out.push({
+        href: m[1],
+        id: m[2],
+        name: m[3].replace(/<[^>]*>/g, '').trim(),
+        level: parseInt(m[4], 10)
+      });
+    }
+    return out;
+  }
+
   //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -205,7 +263,10 @@
       createHttp: createHttp,
       createGateway: createGateway,
       FatalError: FatalError,
-      isWindowOpen: isWindowOpen
+      isWindowOpen: isWindowOpen,
+      parseMine: parseMine,
+      parseFormation: parseFormation,
+      parseFriendList: parseFriendList
     };
     return;
   }
