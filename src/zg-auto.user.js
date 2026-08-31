@@ -112,6 +112,72 @@
 
   //  ── L2 Gateway ─────────  read / act / actAll + FatalError
 
+  function FatalError(message) {
+    var e = Error.call(this, message);
+    this.name = 'FatalError';
+    this.message = message;
+    this.stack = e.stack;
+  }
+  FatalError.prototype = Object.create(Error.prototype);
+  FatalError.prototype.constructor = FatalError;
+
+  // 全脚本唯一的游戏交互出口。任务层禁止绕过它直接发请求。
+  //
+  // act 固定五步：取列表页拿新 _r → 找 href 原文 → 节流后请求 → 检测登录页 → 返回。
+  // _r 是一次性 token，批量复用只有第一次生效且静默失败，故每次动作前都要重取列表页。
+  function createGateway(deps) {
+    var http = deps.http;
+    var dryRun = deps.dryRun;
+    var log = deps.log || function () {};
+
+    async function read(path) {
+      var r = await http.get(path);
+      if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录游戏');
+      return r.html;
+    }
+
+    async function act(listPath, linkRe) {
+      var listHtml = await read(listPath);
+      var href = findHref(listHtml, linkRe);
+      if (!href) return { ok: false, matched: false, html: null, url: null, skipped: false };
+      if (dryRun) {
+        log({ action: 'act', url: href, dryRun: true });
+        return { ok: true, matched: true, html: null, url: href, skipped: true };
+      }
+      var r = await http.get(href);
+      if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录游戏');
+      return { ok: true, matched: true, html: r.html, url: href, skipped: false };
+    }
+
+    // 去重按路径（去掉 query）进行：同一动作每轮的 _r 都不同，
+    // 按完整 URL 去重会导致同一动作被反复执行。
+    async function actAll(listPath, linkRe, max) {
+      var results = [];
+      var seen = {};
+      for (var i = 0; i < max; i++) {
+        var listHtml = await read(listPath);
+        var candidates = allHrefs(listHtml).filter(function (h) { return linkRe.test(h); });
+        var next = null;
+        for (var j = 0; j < candidates.length; j++) {
+          var key = candidates[j].split('?')[0];
+          if (!seen[key]) { next = candidates[j]; seen[key] = true; break; }
+        }
+        if (!next) break;
+        if (dryRun) {
+          log({ action: 'actAll', url: next, dryRun: true });
+          results.push({ ok: true, matched: true, html: null, url: next, skipped: true });
+          continue;
+        }
+        var r = await http.get(next);
+        if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录游戏');
+        results.push({ ok: true, matched: true, html: r.html, url: next, skipped: false });
+      }
+      return results;
+    }
+
+    return { read: read, act: act, actAll: actAll };
+  }
+
   //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -121,7 +187,9 @@
       findHref: findHref,
       matchNumber: matchNumber,
       isLoginPage: isLoginPage,
-      createHttp: createHttp
+      createHttp: createHttp,
+      createGateway: createGateway,
+      FatalError: FatalError
     };
     return;
   }
