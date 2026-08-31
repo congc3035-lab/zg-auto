@@ -179,6 +179,20 @@
     return { read: read, act: act, actAll: actAll };
   }
 
+  //  ── L3 Domain ──────────  parse / formation / windows
+
+  // ranges 形如 [[12,13],[18,19]]，含起点不含终点。
+  // 终点算关闭：13:00 时站点已返回「未达到时间」，若把终点算作开放会误判。
+  // date 由调用方注入，便于测试；生产代码传 new Date()。
+  function isWindowOpen(ranges, date) {
+    if (!Array.isArray(ranges) || ranges.length === 0) return false;
+    var h = date.getHours();
+    for (var i = 0; i < ranges.length; i++) {
+      if (h >= ranges[i][0] && h < ranges[i][1]) return true;
+    }
+    return false;
+  }
+
   //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -190,12 +204,12 @@
       isLoginPage: isLoginPage,
       createHttp: createHttp,
       createGateway: createGateway,
-      FatalError: FatalError
+      FatalError: FatalError,
+      isWindowOpen: isWindowOpen
     };
     return;
   }
 
-  //  ── L3 Domain ──────────  （后续计划）
   //  ── L4 Tasks ───────────  （后续计划）
   //  ── L5 Runtime ─────────  （后续计划）
 
