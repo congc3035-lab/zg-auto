@@ -12,7 +12,9 @@ const {
   isWindowOpen,
   parseMine,
   parseFormation,
-  parseFriendList
+  parseFriendList,
+  ensureFormation,
+  withFormation
 } = require('../src/zg-auto.user.js');
 
 const mineHtml = readFileSync(new URL('../fixtures/mine.html', import.meta.url), 'utf8');
@@ -130,4 +132,99 @@ test('按 40 级门槛过滤后只剩 4 位', () => {
 test('parseFriendList 对空输入返回空数组', () => {
   assert.deepEqual(parseFriendList(''), []);
   assert.deepEqual(parseFriendList(null), []);
+});
+
+// ---- 编队切换与守卫 ----
+//
+// fakeGw 按调用顺序消费 states 数组：第 n 次 read 返回 states[n-1]，
+// 数组耗尽后固定返回最后一个。act 只记录正则源码、不改变状态，
+// 状态变化由 states 的下一项表达。这样每个测试都能明确写出
+// 「切换前读到什么、切换后读到什么」。
+function fakeGw(states) {
+  const acts = [];
+  const reads = [];
+  let i = 0;
+  return {
+    acts,
+    reads,
+    read: async (p) => {
+      reads.push(p);
+      const s = states[Math.min(i, states.length - 1)];
+      i++;
+      return s;
+    },
+    act: async (p, re) => {
+      acts.push(re.source);
+      return { ok: true, matched: true, html: null, url: 'x', skipped: false };
+    },
+  };
+}
+
+const GENERALS = { sima: 'G-SIMA', wang: 'G-WANG', yue: 'G-YUE', wu: 'G-WU' };
+
+const SOLO = '先锋:<span>空闲</span>前军:<span><a>王翦</a></span>中军:<span>空闲</span>后卫:<span>空闲</span>';
+const FOUR = '先锋:<span><a>甲</a></span>前军:<span><a>王翦</a></span>中军:<span><a>乙</a></span>后卫:<span><a>丙</a></span>';
+const OTHER = '先锋:<span><a>甲</a></span>前军:<span>空闲</span>中军:<span>空闲</span>后卫:<span>空闲</span>';
+
+test('已是目标阵型时不发任何写请求（幂等）', async () => {
+  const gw = fakeGw([SOLO]);
+  const r = await ensureFormation({ gw, generals: GENERALS }, 'solo');
+  assert.equal(r, 'solo');
+  assert.equal(gw.acts.length, 0);
+});
+
+test('从 four 切到 solo 会下阵三位', async () => {
+  const gw = fakeGw([FOUR, SOLO]);
+  const r = await ensureFormation({ gw, generals: GENERALS }, 'solo');
+  assert.equal(gw.acts.length, 3);
+  assert.ok(gw.acts[0].includes('a=0'));
+  assert.ok(gw.acts[1].includes('a=2'));
+  assert.ok(gw.acts[2].includes('a=3'));
+  assert.equal(r, 'solo');
+});
+
+test('从 solo 切到 four 会上阵三位并带对应 GUID', async () => {
+  const gw = fakeGw([SOLO, FOUR]);
+  const r = await ensureFormation({ gw, generals: GENERALS }, 'four');
+  assert.equal(gw.acts.length, 3);
+  assert.ok(gw.acts[0].includes('G-SIMA'));
+  assert.ok(gw.acts[1].includes('G-YUE'));
+  assert.ok(gw.acts[2].includes('G-WU'));
+  assert.equal(r, 'four');
+});
+
+test('从 other 切到 four 也走上阵流程', async () => {
+  const gw = fakeGw([OTHER, FOUR]);
+  const r = await ensureFormation({ gw, generals: GENERALS }, 'four');
+  assert.equal(gw.acts.length, 3);
+  assert.equal(r, 'four');
+});
+
+test('切换后重新读取，返回的是实际状态而非期望状态', async () => {
+  const gw = fakeGw([SOLO, OTHER]);
+  const r = await ensureFormation({ gw, generals: GENERALS }, 'four');
+  assert.equal(r, 'other');
+});
+
+test('withFormation 正常执行后切回四人阵', async () => {
+  const gw = fakeGw([SOLO, SOLO, FOUR]);
+  const out = await withFormation({ gw, generals: GENERALS }, 'solo', async () => 42);
+  assert.equal(out, 42);
+  assert.ok(gw.acts.some(s => s.includes('UpOk')));
+});
+
+test('fn 抛错时仍然切回四人阵，且错误继续向上抛', async () => {
+  const gw = fakeGw([SOLO, SOLO, FOUR]);
+  const boom = new Error('任务炸了');
+  await assert.rejects(
+    () => withFormation({ gw, generals: GENERALS }, 'solo', async () => { throw boom; }),
+    (e) => e === boom
+  );
+  assert.ok(gw.acts.some(s => s.includes('UpOk')));
+});
+
+test('withFormation 把 fn 的返回值原样传出', async () => {
+  const gw = fakeGw([FOUR, FOUR]);
+  const out = await withFormation({ gw, generals: GENERALS }, 'four', async () => ({ n: 7 }));
+  assert.deepEqual(out, { n: 7 });
 });
