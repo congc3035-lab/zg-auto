@@ -12,12 +12,9 @@
 // @updateURL    https://raw.githubusercontent.com/congc3035-lab/zg-auto/main/src/zg-auto.user.js
 // ==/UserScript==
 
-// 文件骨架。
-//
 // 分层顺序即依赖顺序，只能向前引用。下层禁止感知上层，
 // 禁止出现具体任务的名字。详见 docs/02-架构设计.md。
 //
-// 当前状态：仅骨架，无任何实现。
 // 按开发契约，任何 production 代码都必须先有一个失败的测试。
 // 版本号保持 0.0.0 直到首个可用版本发布。
 
@@ -25,11 +22,40 @@
   'use strict';
 
   //  ── CFG ────────────────  配置，全部可变值（阈值 / 路径 / GUID / 快捷键）
+
   //  ── L1 Core ────────────  http / dom / store / log / sleep
+
+  // 游戏页面把中文全部编码成 HTML 实体，等级写作 (50&#x7EA7;) 而非 (50级)。
+  // 浏览器 DOMParser 会自动解码，但 Node 没有内置 DOMParser，
+  // 引入解析库会破坏「零依赖」约束，故这里自行解码。
+  //
+  // &amp; 必须放在最后替换，否则 &amp;lt; 会被二次解码成 <。
+  function decodeEntities(s) {
+    if (typeof s !== 'string') return '';
+    return s
+      .replace(/&#x([0-9a-fA-F]+);/g, function (_, h) {
+        return String.fromCodePoint(parseInt(h, 16));
+      })
+      .replace(/&#(\d+);/g, function (_, d) {
+        return String.fromCodePoint(parseInt(d, 10));
+      })
+      .replace(/&nbsp;/g, '\u00a0')
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  }
+
   //  ── L2 Gateway ─────────  read / act / actAll + FatalError
-  //  ── L3 Domain ──────────  resources / formation / windows
-  //  ── L4 Tasks ───────────  各 Task 对象 + TASKS 注册表   ← 唯一增长区
-  //  ── L5 Runtime ─────────  scheduler / panel / stealth
-  //  ── Bootstrap ──────────  入口
+
+  //  ── Node 测试导出 ──────  浏览器中 module 未定义，本段不执行
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { decodeEntities: decodeEntities };
+    return;
+  }
+
+  //  ── L3 Domain ──────────  （后续计划）
+  //  ── L4 Tasks ───────────  （后续计划）
+  //  ── L5 Runtime ─────────  （后续计划）
 
 })();
