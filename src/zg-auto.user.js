@@ -30,7 +30,7 @@
 
   //  ── L1 Core ────────────  http / dom / store / log / sleep
 
-  // 游戏页面把中文全部编码成 HTML 实体，等级写作 (50&#x7EA7;) 而非 (50级)。
+  // 站点把中文全部编码成 HTML 实体，页面里看到的是 &#x7EA7; 而不是「级」。
   // 浏览器 DOMParser 会自动解码，但 Node 没有内置 DOMParser，
   // 引入解析库会破坏「零依赖」约束，故这里自行解码。
   //
@@ -52,7 +52,7 @@
   }
 
   // 返回页面中全部 href 的原文（已解码实体）。
-  // sid 必须使用原文，手工拼接会被重定向到登录页。
+  // 查询串必须使用原文，手工拼接会被站点重定向到登录页。
   function allHrefs(html) {
     if (typeof html !== 'string') return [];
     var out = [];
@@ -73,7 +73,8 @@
     return null;
   }
 
-  // 先解码再匹配，因此正则可直接写中文（军令：(\d+)）而不必关心实体编码。
+  // 先解码再匹配，因此调用方的正则可直接写中文，不必关心实体编码。
+  // 例如 /总计：(\d+)/ 能匹配到编码成 &#24635;&#35745; 的页面文本。
   function matchNumber(html, re) {
     var text = decodeEntities(html);
     var m = re.exec(text);
@@ -121,7 +122,7 @@
   FatalError.prototype = Object.create(Error.prototype);
   FatalError.prototype.constructor = FatalError;
 
-  // 全脚本唯一的游戏交互出口。任务层禁止绕过它直接发请求。
+  // 全脚本唯一的站点交互出口。上层禁止绕过它直接发请求。
   //
   // act 固定五步：取列表页拿新 _r → 找 href 原文 → 节流后请求 → 检测登录页 → 返回。
   // _r 是一次性 token，批量复用只有第一次生效且静默失败，故每次动作前都要重取列表页。
@@ -132,7 +133,7 @@
 
     async function read(path) {
       var r = await http.get(path);
-      if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录游戏');
+      if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录');
       return r.html;
     }
 
@@ -145,7 +146,7 @@
         return { ok: true, matched: true, html: null, url: href, skipped: true };
       }
       var r = await http.get(href);
-      if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录游戏');
+      if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录');
       return { ok: true, matched: true, html: r.html, url: href, skipped: false };
     }
 
@@ -169,7 +170,7 @@
           continue;
         }
         var r = await http.get(next);
-        if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录游戏');
+        if (isLoginPage(r.html)) throw new FatalError('登录已失效，请重新登录');
         results.push({ ok: true, matched: true, html: r.html, url: next, skipped: false });
       }
       return results;
